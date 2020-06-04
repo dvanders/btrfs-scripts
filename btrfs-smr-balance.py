@@ -18,40 +18,42 @@
 # * otherwise, decrease the per-chunk sleep interval
 # * stop after the stdev of the unallocated space on all drives drops below 5GB
 
+import time
+import sys
+import subprocess
+import statistics
+import psutil
+import logging
+from functools import lru_cache
+
 # Here are some config options, to be set for your environment:
 
-FILESYSTEM = '/media/btrfs' # your filesystem to be balanced
-CHUNK_TIMEOUT = 60 # time in seconds to decide if a single balance operation was fast enough
-MAX_SLEEP = 7200 # max time in seconds to sleep between balance operations
-STDEV_LIMIT = 5*1024*1024*1024 # standard deviation in unallocated bytes after which to exit
+FILESYSTEM = '/media/btrfs'  # your filesystem to be balanced
+CHUNK_TIMEOUT = 60  # time in seconds to decide if a single balance operation was fast enough
+MAX_SLEEP = 7200  # max time in seconds to sleep between balance operations
+STDEV_LIMIT = 5 * 1024 * 1024 * 1024  # standard deviation in unallocated bytes after which to exit
 
-# ------------------
-
-from functools import lru_cache
-import logging
-import psutil
-import statistics
-import subprocess
-import sys
-import time
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s %(message)s',
     level=logging.INFO,
     datefmt='%Y-%m-%d %H:%M:%S')
 
+
 @lru_cache
 def fib(n):
     if n < 2:
         return 1
-    return fib(n-2) + fib(n-1)
+    return fib(n - 2) + fib(n - 1)
+
 
 def sizeof_fmt(num, suffix='B'):
-    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
         if abs(num) < 1024.0:
             return "%4.2f%s%s" % (num, unit, suffix)
         num /= 1024.0
     return "%.2f%s%s" % (num, 'Yi', suffix)
+
 
 def bal_chunk():
     least_empty_dev_id = None
@@ -59,7 +61,8 @@ def bal_chunk():
     least_empty_dev_unallocated = float('inf')
 
     free = []
-    for line in subprocess.getoutput('btrfs fi show --raw %s | grep devid' % FILESYSTEM).split('\n'):
+    for line in subprocess.getoutput(
+            'btrfs fi show --raw %s | grep devid' % FILESYSTEM).split('\n'):
         x = line.split()
         devid = x[1]
         size = int(x[3])
@@ -76,12 +79,15 @@ def bal_chunk():
 
     stdev = statistics.stdev(free)
     if stdev < STDEV_LIMIT:
-        logging.info('Unallocated space stdev %s is below %s, exiting now.' % (sizeof_fmt(stdev), sizeof_fmt(STDEV_LIMIT)))
+        logging.info('Unallocated space stdev %s is below %s, exiting now.' %
+                     (sizeof_fmt(stdev), sizeof_fmt(STDEV_LIMIT)))
         sys.exit()
     else:
-        logging.info('Unallocated space stdev %s is above %s, continuing...' % (sizeof_fmt(stdev), sizeof_fmt(STDEV_LIMIT)))
+        logging.info('Unallocated space stdev %s is above %s, continuing...' %
+                     (sizeof_fmt(stdev), sizeof_fmt(STDEV_LIMIT)))
 
-    logging.info('Balancing the least empty device: %s with %s unallocated' % (least_empty_dev_path, sizeof_fmt(least_empty_dev_unallocated)))
+    logging.info('Balancing the least empty device: %s with %s unallocated' %
+                 (least_empty_dev_path, sizeof_fmt(least_empty_dev_unallocated)))
 
     cmd = 'btrfs balance start -ddevid=%s,limit=1 %s' % (least_empty_dev_id, FILESYSTEM)
     ret, out = subprocess.getstatusoutput(cmd)
@@ -92,13 +98,13 @@ def bal_chunk():
     else:
         logging.info(out)
 
+
 def fib_sleep(index):
     seconds = fib(index)
     until = time.strftime("%H:%M:%S", time.localtime(time.time() + seconds))
     logging.info("Sleeping %ds until %s" % (seconds, until))
     time.sleep(seconds)
 
-# ------------------
 
 # Check that FILESYSTEM is btrfs
 for part in psutil.disk_partitions():
@@ -125,9 +131,12 @@ while True:
 
     # adjust a fibonacci backoff and sleep
     if (duration > CHUNK_TIMEOUT):
-        if fib(backoff + 1) < MAX_SLEEP: backoff += 1
+        if fib(backoff + 1) < MAX_SLEEP:
+            backoff += 1
         fib_sleep(backoff)
     else:
-        if backoff > 1: backoff -= 2 # that's optimism
-        elif backoff > 0: backoff -= 1
+        if backoff > 1:
+            backoff -= 2  # that's optimism
+        elif backoff > 0:
+            backoff -= 1
         fib_sleep(backoff)
